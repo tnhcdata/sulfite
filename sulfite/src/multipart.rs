@@ -134,14 +134,13 @@ where
     P: ProgressBar + 'static,
 {
     let part_size = dst_client.multipart_part_size();
-    let workers = dst_client.multipart_n_workers();
-    if src_client.multipart_part_size() != part_size || src_client.multipart_n_workers() != workers
-    {
+    let workers = dst_client.multipart_workers();
+    if src_client.multipart_part_size() != part_size || src_client.multipart_workers() != workers {
         warn!(
             "Source and destination multipart settings differ: source part_size={} workers={}, \
              destination part_size={} workers={}. Using destination settings.",
             src_client.multipart_part_size(),
-            src_client.multipart_n_workers(),
+            src_client.multipart_workers(),
             part_size,
             workers
         );

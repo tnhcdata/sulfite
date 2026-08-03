@@ -48,7 +48,7 @@ pub async fn run_csv(
     dst_client: Option<S3Client>,
     args: CsvArgs,
 ) -> anyhow::Result<()> {
-    if args.n_workers == 0 {
+    if args.workers == 0 {
         anyhow::bail!("CSV workers must be greater than zero");
     }
 
@@ -57,9 +57,9 @@ pub async fn run_csv(
             .as_ref()
             .context("destination S3 client is not configured")?;
         let src_part_size = client.multipart_part_size();
-        let src_workers = client.multipart_n_workers();
+        let src_workers = client.multipart_workers();
         let multipart_part_size = dst_client.multipart_part_size();
-        let multipart_workers = dst_client.multipart_n_workers();
+        let multipart_workers = dst_client.multipart_workers();
         if src_part_size != multipart_part_size || src_workers != multipart_workers {
             warn!(
                 "Source and destination multipart settings differ: source part_size={} bytes \
@@ -69,7 +69,7 @@ pub async fn run_csv(
             );
         }
 
-        let batch_workers = u64::try_from(args.n_workers).unwrap_or(u64::MAX);
+        let batch_workers = u64::try_from(args.workers).unwrap_or(u64::MAX);
         let multipart_workers = u64::try_from(multipart_workers).unwrap_or(u64::MAX);
         let mib = 1024 * 1024;
         let max_in_memory_mib = IN_MEMORY_COPY_THRESHOLD
@@ -84,7 +84,7 @@ pub async fn run_csv(
              multipart_part_size={} MiB. Objects below {} MiB are copied fully in memory, \
              allowing up to approximately {} MiB of payload buffering; multipart copies can \
              buffer approximately {} MiB, plus SDK overhead.",
-            args.n_workers,
+            args.workers,
             multipart_workers,
             multipart_part_size / mib,
             IN_MEMORY_COPY_THRESHOLD / mib,
@@ -412,7 +412,7 @@ pub async fn run_csv(
                 res
             })
         })
-        .buffer_unordered(if is_head { 1 } else { args.n_workers })
+        .buffer_unordered(if is_head { 1 } else { args.workers })
         .fold(0usize, |failure_count, result| async move {
             match result {
                 Ok(Ok(())) => failure_count,

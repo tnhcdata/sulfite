@@ -41,7 +41,7 @@ pub const FILE_BUFFER_SIZE: usize = 1024 * 1024;
 /// `MULTIPART_MAX_PARTS`.
 pub const DEFAULT_MULTIPART_PART_SIZE: u64 = 1024 * 1024 * 20;
 /// Number of parallel workers for multipart download/upload/copy when not overridden per call (default: 1).
-pub const DEFAULT_MULTIPART_N_WORKERS: usize = 1;
+pub const DEFAULT_MULTIPART_WORKERS: usize = 1;
 /// S3 API limit on number of parts per multipart upload (10_000).
 pub const MULTIPART_MAX_PARTS: u64 = 10000;
 /// S3 minimum size for every multipart upload part except the final part (5 MiB).
@@ -99,7 +99,7 @@ pub struct S3ClientConfig {
     /// `MULTIPART_MAX_PARTS`.
     pub multipart_part_size: u64,
     /// Number of parallel workers for multipart download/upload/copy when not overridden per call (default: 1).
-    pub multipart_n_workers: usize,
+    pub multipart_workers: usize,
 }
 
 impl Default for S3ClientConfig {
@@ -111,7 +111,7 @@ impl Default for S3ClientConfig {
             access_secret_session_tuple: None,
             read_timeout_secs: DEFAULT_READ_TIMEOUT,
             multipart_part_size: DEFAULT_MULTIPART_PART_SIZE,
-            multipart_n_workers: DEFAULT_MULTIPART_N_WORKERS,
+            multipart_workers: DEFAULT_MULTIPART_WORKERS,
         }
     }
 }
@@ -502,7 +502,7 @@ pub struct S3Client {
     pub inner: AWSS3Client,
     retry_config: RetryConfig,
     multipart_part_size: u64,
-    multipart_n_workers: usize,
+    multipart_workers: usize,
 }
 
 impl S3Client {
@@ -555,18 +555,18 @@ impl S3Client {
             inner: AWSS3Client::from_conf(config_builder.build()),
             retry_config,
             multipart_part_size: config.multipart_part_size,
-            multipart_n_workers: config.multipart_n_workers,
+            multipart_workers: config.multipart_workers,
         }
     }
 
     /// Build from an existing SDK client. Use [`RetryConfig::default`] for default AWS client retry behavior (no high-level retries from this crate).
     /// When both high-level (this crate) and low-level (SDK) retries are enabled, logs a warning (double retries).
-    /// Uses [`DEFAULT_MULTIPART_PART_SIZE`] and [`DEFAULT_MULTIPART_N_WORKERS`] unless overridden.
+    /// Uses [`DEFAULT_MULTIPART_PART_SIZE`] and [`DEFAULT_MULTIPART_WORKERS`] unless overridden.
     pub fn new_with_aws_s3_client(
         aws_s3_client: AWSS3Client,
         retry_config: RetryConfig,
         multipart_part_size: Option<u64>,
-        multipart_n_workers: Option<usize>,
+        multipart_workers: Option<usize>,
     ) -> Self {
         if retry_config.max_retries > 0 && aws_s3_client.config().retry_config().is_some() {
             warn!("High-level retries are enabled but low-level retries are also enabled.");
@@ -576,7 +576,7 @@ impl S3Client {
             inner: aws_s3_client,
             retry_config,
             multipart_part_size: multipart_part_size.unwrap_or(DEFAULT_MULTIPART_PART_SIZE),
-            multipart_n_workers: multipart_n_workers.unwrap_or(DEFAULT_MULTIPART_N_WORKERS),
+            multipart_workers: multipart_workers.unwrap_or(DEFAULT_MULTIPART_WORKERS),
         }
     }
 
@@ -586,8 +586,8 @@ impl S3Client {
     }
 
     /// Configured number of concurrent multipart workers.
-    pub fn multipart_n_workers(&self) -> usize {
-        self.multipart_n_workers
+    pub fn multipart_workers(&self) -> usize {
+        self.multipart_workers
     }
 
     /// Maps an AWS SDK operation error using this client's retriable status-code configuration.
@@ -965,7 +965,7 @@ impl S3Client {
     where
         P: ProgressBar + 'static,
     {
-        if self.multipart_n_workers == 0 {
+        if self.multipart_workers == 0 {
             return Err(S3Error::ValidationError(
                 "multipart workers must be greater than zero".to_owned(),
             ));
@@ -1132,7 +1132,7 @@ impl S3Client {
                     Ok(())
                 }
             })
-            .buffer_unordered(self.multipart_n_workers)
+            .buffer_unordered(self.multipart_workers)
             .try_collect()
             .await;
         if let Err(transfer_error) = transfer_result {
@@ -1251,7 +1251,7 @@ impl S3Client {
     where
         P: ProgressBar + 'static,
     {
-        if self.multipart_n_workers == 0 {
+        if self.multipart_workers == 0 {
             return Err(S3Error::ValidationError(
                 "multipart workers must be greater than zero".to_owned(),
             ));
@@ -1360,7 +1360,7 @@ impl S3Client {
                         .build())
                 }
             })
-            .buffer_unordered(self.multipart_n_workers)
+            .buffer_unordered(self.multipart_workers)
             .try_collect()
             .await;
         let mut upload_parts = match transfer_result {
@@ -1511,7 +1511,7 @@ impl S3Client {
     where
         P: ProgressBar + 'static,
     {
-        if self.multipart_n_workers == 0 {
+        if self.multipart_workers == 0 {
             return Err(S3Error::ValidationError(
                 "multipart workers must be greater than zero".to_owned(),
             ));
@@ -1647,7 +1647,7 @@ impl S3Client {
                         .build())
                 }
             })
-            .buffer_unordered(self.multipart_n_workers)
+            .buffer_unordered(self.multipart_workers)
             .try_collect()
             .await;
         let mut upload_parts = match transfer_result {

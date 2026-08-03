@@ -2,7 +2,7 @@
 
 use clap::{Parser, Subcommand};
 use sulfite::{
-    DEFAULT_MULTIPART_N_WORKERS, DEFAULT_MULTIPART_PART_SIZE, DEFAULT_READ_TIMEOUT,
+    DEFAULT_MULTIPART_PART_SIZE, DEFAULT_MULTIPART_WORKERS, DEFAULT_READ_TIMEOUT,
     DEFAULT_RETRIABLE_CLIENT_STATUS_CODES_STR, S3Client,
 };
 
@@ -63,7 +63,7 @@ pub struct Cli {
     #[arg(
         long,
         global = true,
-        default_value_t = DEFAULT_MULTIPART_N_WORKERS,
+        default_value_t = DEFAULT_MULTIPART_WORKERS,
         value_parser = parse_positive_usize
     )]
     pub multipart_workers: usize,
@@ -314,7 +314,7 @@ pub struct CsvArgs {
         default_value = "250",
         value_parser = parse_positive_usize
     )]
-    pub n_workers: usize,
+    pub workers: usize,
 }
 
 #[derive(Subcommand, Clone)]
@@ -457,13 +457,13 @@ pub enum CsvCommand {
 mod tests {
     use super::Cli;
     use clap::Parser;
-    use sulfite::DEFAULT_MULTIPART_N_WORKERS;
+    use sulfite::DEFAULT_MULTIPART_WORKERS;
 
     #[test]
     fn multipart_cli_defaults_and_rejects_zero_part_size() {
         let args =
             Cli::try_parse_from(["sulfite", "head", "--bucket", "bucket", "--key", "key"]).unwrap();
-        assert_eq!(args.multipart_workers, DEFAULT_MULTIPART_N_WORKERS);
+        assert_eq!(args.multipart_workers, DEFAULT_MULTIPART_WORKERS);
 
         assert!(
             Cli::try_parse_from([

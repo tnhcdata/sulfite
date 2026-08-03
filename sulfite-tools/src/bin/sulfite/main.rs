@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
             profile_name: args.profile.clone(),
             read_timeout_secs: args.read_timeout,
             multipart_part_size: args.multipart_part_size,
-            multipart_n_workers: args.multipart_workers,
+            multipart_workers: args.multipart_workers,
             ..Default::default()
         },
         RetryConfig {
@@ -51,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
                     profile_name: a.dst_profile.clone(),
                     read_timeout_secs: args.read_timeout,
                     multipart_part_size: args.multipart_part_size,
-                    multipart_n_workers: args.multipart_workers,
+                    multipart_workers: args.multipart_workers,
                     ..Default::default()
                 },
                 RetryConfig {
@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
                             profile_name: dst_profile.clone(),
                             read_timeout_secs: args.read_timeout,
                             multipart_part_size: args.multipart_part_size,
-                            multipart_n_workers: args.multipart_workers,
+                            multipart_workers: args.multipart_workers,
                             ..Default::default()
                         },
                         RetryConfig {
