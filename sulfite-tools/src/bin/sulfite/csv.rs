@@ -1,7 +1,6 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream};
-use log::{debug, error, info, warn};
 use std::path::{Component, Path};
 use std::time::SystemTime;
 use sulfite::{S3Client, S3Error, copy_object_multipart_cross_clients};
@@ -9,6 +8,7 @@ use sulfite_tools::utils::{
     get_keys_from_csv, get_line_count, make_progress_bar, print_object_human,
     warn_prefix_no_trailing_slash,
 };
+use tracing::{debug, error, info, warn};
 
 use crate::{CsvArgs, CsvCommand};
 
@@ -47,6 +47,7 @@ pub async fn run_csv(
     client: S3Client,
     dst_client: Option<S3Client>,
     args: CsvArgs,
+    show_progress: bool,
 ) -> anyhow::Result<()> {
     if args.workers == 0 {
         anyhow::bail!("CSV workers must be greater than zero");
@@ -131,7 +132,7 @@ pub async fn run_csv(
     } else {
         let total_lines = get_line_count(&args.source_path)? as u64;
         let key_count = total_lines.saturating_sub(if args.has_header { 1 } else { 0 });
-        Some(make_progress_bar(Some(key_count)))
+        Some(make_progress_bar(Some(key_count), show_progress))
     };
 
     let failure_count = stream::iter(keys)

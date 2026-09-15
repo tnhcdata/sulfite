@@ -1,12 +1,12 @@
 [package]
 name = "sulfite-tools"
-version = "0.0.11"
+version = "0.0.12"
 edition = "2024"
-authors = ["Terence Liu <terence.liu@clearview.ai>"]
+authors = ["Terence Liu <terence@tnhcdata.io>"]
 description = "A high-level S3 client built on AWS SDK for Rust for bandwidth saturation (CLI tools)"
 license = "MIT"
-homepage = "https://github.com/clearviewai/sulfite"
-repository = "https://github.com/clearviewai/sulfite"
+homepage = "https://github.com/tnhcdata/sulfite"
+repository = "https://github.com/tnhcdata/sulfite"
 readme = "README.md"
 keywords = ["s3", "object", "storage"]
 categories = ["web-programming::http-client"]
@@ -18,18 +18,18 @@ doc = false
 
 [dependencies]
 # Path used for local dev; when published, only version is used (publish sulfite first).
-sulfite = { version = "0.0.11", path = "../sulfite", features = ["indicatif"] }
+sulfite = { version = "0.0.12", path = "../sulfite", features = ["indicatif"] }
 
 anyhow = "1.0"
-env_logger = "0.11"
 colored = "3.1"
 clap = { version = "4.4.10", features = ["derive"] }
 csv = "1.3"
 futures = "0.3"
 indicatif = { version = "0.18", features = ["tokio"] }
-log = "0.4"
 tokio = { version = "1", features = ["full"] }
 chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 [dev-dependencies]
 sulfite = { path = "../sulfite" }

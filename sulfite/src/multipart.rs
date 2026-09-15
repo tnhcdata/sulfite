@@ -7,7 +7,7 @@ use aws_sdk_s3::{
     types::{CompletedMultipartUpload, CompletedPart, StorageClass},
 };
 use futures::{StreamExt, TryStreamExt, stream};
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MultipartPlan {

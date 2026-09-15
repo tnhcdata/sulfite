@@ -4,7 +4,11 @@ use sulfite::{S3Client, copy_object_multipart_cross_clients};
 use crate::ObjCommand;
 use sulfite_tools::utils::{make_progress_bar, print_object_human};
 
-pub async fn run_obj(client: S3Client, command: ObjCommand) -> anyhow::Result<()> {
+pub async fn run_obj(
+    client: S3Client,
+    command: ObjCommand,
+    show_progress: bool,
+) -> anyhow::Result<()> {
     match command {
         ObjCommand::Head(a) => {
             let obj = client.head_object(&a.bucket, &a.key).await?;
@@ -31,7 +35,7 @@ pub async fn run_obj(client: S3Client, command: ObjCommand) -> anyhow::Result<()
                     .and_then(|os_str| os_str.to_str())
                     .context("key has no file name")?,
             };
-            let pb = make_progress_bar(Some(0));
+            let pb = make_progress_bar(Some(0), show_progress);
             client
                 .download_object_multipart(&a.bucket, &a.key, local_path, Some(&pb))
                 .await?;
@@ -43,7 +47,7 @@ pub async fn run_obj(client: S3Client, command: ObjCommand) -> anyhow::Result<()
                 .await?;
         }
         ObjCommand::UploadMultipart(a) => {
-            let pb = make_progress_bar(Some(0));
+            let pb = make_progress_bar(Some(0), show_progress);
             client
                 .upload_object_multipart(
                     &a.bucket,
@@ -70,7 +74,7 @@ pub async fn run_obj(client: S3Client, command: ObjCommand) -> anyhow::Result<()
                 .await?;
         }
         ObjCommand::CopyMultipart(a) => {
-            let pb = make_progress_bar(Some(0));
+            let pb = make_progress_bar(Some(0), show_progress);
             client
                 .copy_object_multipart(
                     &a.src_bucket,
@@ -84,7 +88,7 @@ pub async fn run_obj(client: S3Client, command: ObjCommand) -> anyhow::Result<()
             pb.finish();
         }
         ObjCommand::CopyMultipartCrossClients { args, dst_client } => {
-            let pb = make_progress_bar(Some(0));
+            let pb = make_progress_bar(Some(0), show_progress);
             copy_object_multipart_cross_clients(
                 &client,
                 &dst_client,

@@ -15,7 +15,7 @@ const DEFAULT_LOCALSTACK_ENDPOINT: &str = "http://localhost:4566";
 const TEST_BUCKET: &str = "sulfite-test-bucket";
 const RANDOM_HEX_LEN: usize = 32;
 
-static ENV_LOGGER: Once = Once::new();
+static TRACING_SUBSCRIBER: Once = Once::new();
 
 fn localstack_endpoint() -> String {
     std::env::var("LOCALSTACK_ENDPOINT").unwrap_or_else(|_| DEFAULT_LOCALSTACK_ENDPOINT.into())
@@ -31,8 +31,14 @@ fn cli_base_args() -> Vec<String> {
 }
 
 fn run_cli(args: &[&str]) -> (bool, String, String) {
-    ENV_LOGGER.call_once(|| {
-        let _ = env_logger::builder().is_test(true).try_init();
+    TRACING_SUBSCRIBER.call_once(|| {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "warn".into()),
+            )
+            .with_test_writer()
+            .try_init();
     });
     let exe = env!("CARGO_BIN_EXE_sulfite");
     let mut cmd = Command::new(exe);

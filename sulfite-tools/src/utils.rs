@@ -47,7 +47,7 @@ pub fn print_object_human(display_key: &str, obj: &ObjectInfo) {
 /// (e.g. "archive-" or "year-2024-"); in those cases the user can ignore the warning.
 pub fn warn_prefix_no_trailing_slash(prefix: &str, context: &str) {
     if !prefix.is_empty() && !prefix.ends_with('/') {
-        eprintln!(
+        tracing::warn!(
             "WARNING [{}]: Prefix does not end with '/'. Keys may not match directory-style paths. \
              (if intentional, e.g. non-path prefix like 'archive-', ignore.)",
             context
@@ -75,7 +75,11 @@ pub fn get_keys_from_csv(
         .map(move |record| record.map(|r| r[column_index].to_string())))
 }
 
-pub fn make_progress_bar(total: Option<u64>) -> indicatif::ProgressBar {
+pub fn make_progress_bar(total: Option<u64>, visible: bool) -> indicatif::ProgressBar {
+    if !visible {
+        return ProgressBar::hidden();
+    }
+
     let pb;
     let sty;
     match total {

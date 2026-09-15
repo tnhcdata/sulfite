@@ -33,6 +33,9 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
 
+    /// Emit logs as newline-delimited JSON on stderr and hide progress bars.
+    #[arg(long, global = true)]
+    pub json: bool,
     /// The AWS region (or the region of the custom endpoint).
     #[arg(short, long, global = true)]
     pub region: Option<String>,
@@ -463,7 +466,14 @@ mod tests {
     fn multipart_cli_defaults_and_rejects_zero_part_size() {
         let args =
             Cli::try_parse_from(["sulfite", "head", "--bucket", "bucket", "--key", "key"]).unwrap();
+        assert!(!args.json);
         assert_eq!(args.multipart_workers, DEFAULT_MULTIPART_WORKERS);
+
+        let args = Cli::try_parse_from([
+            "sulfite", "head", "--bucket", "bucket", "--key", "key", "--json",
+        ])
+        .unwrap();
+        assert!(args.json);
 
         assert!(
             Cli::try_parse_from([

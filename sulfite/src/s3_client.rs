@@ -16,12 +16,12 @@ use aws_sdk_s3::{
 use bytes::Bytes;
 use core::str;
 use futures::{StreamExt, TryStreamExt, stream};
-#[allow(unused_imports)]
-use log::{debug, error, info, trace, warn};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt, BufWriter};
 use tokio_retry::RetryIf;
+#[allow(unused_imports)]
+use tracing::{debug, error, info, trace, warn};
 
 /// Default read timeout in seconds for the underlying HTTP client (boto default).
 pub const DEFAULT_READ_TIMEOUT: u64 = 60;
