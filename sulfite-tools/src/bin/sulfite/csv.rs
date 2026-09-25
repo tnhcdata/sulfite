@@ -43,6 +43,70 @@ fn local_path_for_key(local_dir: &str, key: &str) -> anyhow::Result<String> {
         })
 }
 
+fn inferred_local_s3_match(
+    local_size: u64,
+    local_mtime: SystemTime,
+    remote_size: u64,
+    remote_mtime: SystemTime,
+) -> bool {
+    local_size == remote_size && local_mtime <= remote_mtime
+}
+
+fn effective_storage_class(size: u64, requested: Option<&str>) -> Option<&str> {
+    if size < 16 * 1024 { None } else { requested }
+}
+
+fn inferred_storage_class_matches(
+    actual_storage_class: Option<&str>,
+    requested_storage_class: Option<&str>,
+) -> bool {
+    let actual = actual_storage_class.unwrap_or("STANDARD");
+    let expected = requested_storage_class.unwrap_or("STANDARD");
+    actual.eq_ignore_ascii_case(expected)
+}
+
+fn inferred_upload_matches(
+    local_size: u64,
+    local_mtime: SystemTime,
+    remote_size: u64,
+    remote_mtime: SystemTime,
+    remote_storage_class: Option<&str>,
+    requested_storage_class: Option<&str>,
+) -> bool {
+    inferred_local_s3_match(local_size, local_mtime, remote_size, remote_mtime)
+        && inferred_storage_class_matches(remote_storage_class, requested_storage_class)
+}
+
+fn inferred_copy_matches(
+    source_size: u64,
+    destination_size: u64,
+    destination_storage_class: Option<&str>,
+    requested_storage_class: Option<&str>,
+) -> bool {
+    source_size == destination_size
+        && inferred_storage_class_matches(destination_storage_class, requested_storage_class)
+}
+
+async fn destination_copy_matches(
+    client: &S3Client,
+    bucket: &str,
+    key: &str,
+    source_size: u64,
+    requested_storage_class: Option<&str>,
+) -> Result<bool, S3Error> {
+    match client.head_object(bucket, key).await {
+        Ok(destination) => Ok(inferred_copy_matches(
+            source_size,
+            destination.size,
+            destination.storage_class.as_deref(),
+            requested_storage_class,
+        )),
+        // 404s are not retriable, so they are mapped to AWSS3Error.
+        Err(S3Error::AWSS3Error(_, _, _, 404)) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 pub async fn run_csv(
     client: S3Client,
     dst_client: Option<S3Client>,
@@ -160,9 +224,10 @@ pub async fn run_csv(
                             let obj = client.head_object(&bucket, &key).await
                                 .with_context(|| format!("heading key {key}"))?;
 
-                            // Skip vs override: if local file exists, compare size and mtime (both as SystemTime).
-                            // SystemTime is always a UTC instant (duration since epoch); comparison is timezone-safe.
-                            // Skip only when local size == remote size and local timestamp <= remote timestamp (local not newer).
+                            // S3-authoritative inference: skip when size matches and the S3 object
+                            // is at least as new as the local file. This makes downloading immediately
+                            // after an upload a no-op. A newer local file is intentionally overwritten
+                            // when the user explicitly chooses download.
                             if skip_existing_with_inference {
                                 match std::fs::metadata(&local_path) {
                                     Ok(local_file_info) => {
@@ -175,7 +240,12 @@ pub async fn run_csv(
                                                 SystemTime::UNIX_EPOCH
                                             }
                                         };
-                                        if local_file_size == obj.size && local_mtime <= remote_mtime {
+                                        if inferred_local_s3_match(
+                                            local_file_size,
+                                            local_mtime,
+                                            obj.size,
+                                            remote_mtime,
+                                        ) {
                                             if let Some(pb) = pb.as_ref() { pb.set_message(format!("{key} already exists locally. Skipping.")); }
                                             return Ok(());
                                         } else {
@@ -231,10 +301,15 @@ pub async fn run_csv(
                                 .with_context(|| format!("reading metadata for {local_path}"))?;
                             let local_file_size = local_file_info.len();
                             let local_mtime = local_file_info.modified()?;
+                            let effective_storage_class = effective_storage_class(
+                                local_file_size,
+                                storage_class.as_deref(),
+                            );
 
-                            // Skip vs override: if remote object exists, compare size and mtime (both as SystemTime).
-                            // SystemTime is always a UTC instant; comparison is timezone-safe.
-                            // Skip only when local size == remote size and local timestamp <= remote timestamp.
+                            // S3-authoritative inference: skip when size matches and the S3 object
+                            // is at least as new as the local file, and its storage class matches
+                            // the effective requested class. A newer local file or class mismatch
+                            // is uploaded.
                             if skip_existing_with_inference {
                                 match client.head_object(&bucket, key.as_str()).await {
                                     Ok(obj) => {
@@ -245,7 +320,14 @@ pub async fn run_csv(
                                                 SystemTime::UNIX_EPOCH
                                             }
                                         };
-                                        if local_file_size == obj.size && local_mtime <= remote_mtime {
+                                        if inferred_upload_matches(
+                                            local_file_size,
+                                            local_mtime,
+                                            obj.size,
+                                            remote_mtime,
+                                            obj.storage_class.as_deref(),
+                                            effective_storage_class,
+                                        ) {
                                             if let Some(pb) = pb.as_ref() { pb.set_message(format!("{key} already exists on destination. Skipping.")); }
                                             return Ok(());
                                         } else {
@@ -270,7 +352,12 @@ pub async fn run_csv(
                                 client.upload_object(&bucket, &key, &local_path, None).await
                             } else if local_file_size < 1024 * 1024 * 1024 {
                                 client
-                                    .upload_object(&bucket, &key, &local_path, storage_class.as_deref())
+                                    .upload_object(
+                                        &bucket,
+                                        &key,
+                                        &local_path,
+                                        effective_storage_class,
+                                    )
                                     .await
                             } else {
                                 client
@@ -278,7 +365,7 @@ pub async fn run_csv(
                                         &bucket,
                                         &key,
                                         &local_path,
-                                        storage_class.as_deref(),
+                                        effective_storage_class,
                                         None::<&indicatif::ProgressBar>,
                                     )
                                     .await
@@ -298,6 +385,25 @@ pub async fn run_csv(
 
                             let src_obj = client.head_object(&src_bucket, &src_key).await
                                 .with_context(|| format!("heading key {src_key} on source"))?;
+                            let dst_storage_class = effective_storage_class(
+                                src_obj.size,
+                                dst_storage_class.as_deref(),
+                            );
+
+                            if skip_existing_with_inference
+                                && destination_copy_matches(
+                                    &client,
+                                    &dst_bucket,
+                                    &dst_key,
+                                    src_obj.size,
+                                    dst_storage_class,
+                                )
+                                .await
+                                .with_context(|| format!("heading key {dst_key} on destination"))?
+                            {
+                                if let Some(pb) = pb.as_ref() { pb.set_message(format!("{dst_key} already exists on destination with matching size and storage class. Skipping.")); }
+                                return Ok(());
+                            }
 
                             // Skip only if src and dst are the same key and src is in archival tier.
                             // This happens when you idempotently copy an object into the same destination bucket and key with an archival tier storage class.
@@ -305,7 +411,7 @@ pub async fn run_csv(
                                 && src_bucket == dst_bucket
                                 && src_key == dst_key
                                 && src_storage_class.as_str()
-                                    == dst_storage_class.as_deref().unwrap_or("STANDARD")
+                                    == dst_storage_class.unwrap_or("STANDARD")
                             {
                                 if let Some(pb) = pb.as_ref() { pb.set_message(format!("{src_key} already exists in destination and has the same storage class. Skipping.")); }
                                 return Ok(());
@@ -332,7 +438,7 @@ pub async fn run_csv(
                                         &src_key,
                                         &dst_bucket,
                                         &dst_key,
-                                        dst_storage_class.as_deref(),
+                                        dst_storage_class,
                                     )
                                     .await
                             } else {
@@ -342,7 +448,7 @@ pub async fn run_csv(
                                         &src_key,
                                         &dst_bucket,
                                         &dst_key,
-                                        dst_storage_class.as_deref(),
+                                        dst_storage_class,
                                         None::<&indicatif::ProgressBar>,
                                     )
                                     .await
@@ -360,11 +466,24 @@ pub async fn run_csv(
                                 .with_context(|| format!("heading key {src_key} on source"))?;
 
                             // Keep small archival objects in STANDARD, matching csv copy behavior.
-                            let dst_storage_class = if src_obj.size < 16 * 1024 {
-                                None
-                            } else {
-                                dst_storage_class.as_deref()
-                            };
+                            let dst_storage_class = effective_storage_class(
+                                src_obj.size,
+                                dst_storage_class.as_deref(),
+                            );
+                            if skip_existing_with_inference
+                                && destination_copy_matches(
+                                    dst_client,
+                                    &dst_bucket,
+                                    &dst_key,
+                                    src_obj.size,
+                                    dst_storage_class,
+                                )
+                                .await
+                                .with_context(|| format!("heading key {dst_key} on destination"))?
+                            {
+                                if let Some(pb) = pb.as_ref() { pb.set_message(format!("{dst_key} already exists on destination with matching size and storage class. Skipping.")); }
+                                return Ok(());
+                            }
                             if src_obj.size < IN_MEMORY_COPY_THRESHOLD {
                                 client
                                     .copy_object_cross_clients(
@@ -442,7 +561,12 @@ pub async fn run_csv(
 
 #[cfg(test)]
 mod tests {
-    use super::local_path_for_key;
+    use std::time::{Duration, SystemTime};
+
+    use super::{
+        effective_storage_class, inferred_copy_matches, inferred_local_s3_match,
+        inferred_upload_matches, local_path_for_key,
+    };
 
     #[test]
     fn local_key_path_stays_under_local_directory() {
@@ -458,5 +582,79 @@ mod tests {
         assert!(local_path_for_key("/tmp/base", "../object.txt").is_err());
         assert!(local_path_for_key("/tmp/base", "nested/../../object.txt").is_err());
         assert!(local_path_for_key("/tmp/base", "/tmp/object.txt").is_err());
+    }
+
+    #[test]
+    fn archival_copy_keeps_tiny_objects_in_standard() {
+        assert_eq!(
+            effective_storage_class(16 * 1024 - 1, Some("DEEP_ARCHIVE")),
+            None
+        );
+        assert_eq!(
+            effective_storage_class(16 * 1024, Some("DEEP_ARCHIVE")),
+            Some("DEEP_ARCHIVE")
+        );
+    }
+
+    #[test]
+    fn copy_inference_requires_matching_size_and_storage_class() {
+        assert!(inferred_copy_matches(
+            42,
+            42,
+            Some("DEEP_ARCHIVE"),
+            Some("deep_archive"),
+        ));
+        assert!(inferred_copy_matches(42, 42, None, None));
+        assert!(!inferred_copy_matches(
+            42,
+            41,
+            Some("DEEP_ARCHIVE"),
+            Some("DEEP_ARCHIVE"),
+        ));
+        assert!(!inferred_copy_matches(42, 42, None, Some("DEEP_ARCHIVE"),));
+    }
+
+    #[test]
+    fn local_s3_inference_treats_s3_as_authoritative() {
+        let local_time = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
+        let later_s3_time = SystemTime::UNIX_EPOCH + Duration::from_secs(20);
+        assert!(inferred_local_s3_match(42, local_time, 42, later_s3_time,));
+        assert!(inferred_local_s3_match(42, local_time, 42, local_time));
+        assert!(!inferred_local_s3_match(42, later_s3_time, 42, local_time,));
+        assert!(!inferred_local_s3_match(41, local_time, 42, later_s3_time,));
+    }
+
+    #[test]
+    fn upload_inference_requires_effective_storage_class() {
+        let time = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
+        let archival_size = 16 * 1024;
+        let archival_class = effective_storage_class(archival_size, Some("DEEP_ARCHIVE"));
+
+        assert!(!inferred_upload_matches(
+            archival_size,
+            time,
+            archival_size,
+            time,
+            None,
+            archival_class,
+        ));
+        assert!(inferred_upload_matches(
+            archival_size,
+            time,
+            archival_size,
+            time,
+            Some("DEEP_ARCHIVE"),
+            archival_class,
+        ));
+
+        let tiny_size = 16 * 1024 - 1;
+        assert!(inferred_upload_matches(
+            tiny_size,
+            time,
+            tiny_size,
+            time,
+            None,
+            effective_storage_class(tiny_size, Some("DEEP_ARCHIVE")),
+        ));
     }
 }

@@ -307,7 +307,11 @@ pub struct CsvArgs {
     /// Whether the CSV has a header row (the first row is skipped when reading keys).
     #[arg(long, default_value = "false")]
     pub has_header: bool,
-    /// Skip existing downloads/uploads inferred to be unchanged from size and timestamp.
+    /// Skip existing downloads/uploads/copies inferred to be unchanged.
+    ///
+    /// Downloads skip when size matches and S3 is at least as new as local.
+    /// Uploads also compare effective storage class. Copies compare destination
+    /// size and effective storage class.
     #[arg(long, default_value = "false")]
     pub skip_existing_with_inference: bool,
     /// Maximum number of keys to process in parallel (batch-level parallelism).

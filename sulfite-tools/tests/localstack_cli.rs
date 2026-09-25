@@ -564,3 +564,74 @@ async fn cli_csv_copy_cross_clients() {
     }
     let _ = std::fs::remove_dir_all(&base);
 }
+
+// CSV copy inference: matching size/storage class skips an existing destination.
+#[tokio::test]
+#[ignore = "requires LocalStack (run with: cargo test -p sulfite-tools --test localstack_cli -- --ignored)"]
+async fn cli_csv_copy_skips_matching_destination_inference() {
+    let client = make_client().await;
+    ensure_bucket(&client, TEST_BUCKET).await;
+    let run = generate_random_hex(RANDOM_HEX_LEN);
+    let src_prefix = format!("cli-csv-copy-skip/{run}/src/");
+    let dst_prefix = format!("cli-csv-copy-skip/{run}/dst/");
+    let key = "object";
+    let source_body = b"source-body";
+    let destination_body = b"other-value";
+    assert_eq!(source_body.len(), destination_body.len());
+
+    client
+        .put_object(
+            TEST_BUCKET,
+            &format!("{src_prefix}{key}"),
+            source_body,
+            None,
+        )
+        .await
+        .expect("put source object");
+    client
+        .put_object(
+            TEST_BUCKET,
+            &format!("{dst_prefix}{key}"),
+            destination_body,
+            None,
+        )
+        .await
+        .expect("put destination object");
+
+    let base = std::env::temp_dir()
+        .join("sulfite_cli_csv_copy_skip")
+        .join(&run);
+    std::fs::create_dir_all(&base).expect("create test directory");
+    let manifest = base.join("keys.csv");
+    std::fs::write(&manifest, format!("key\n{key}\n")).expect("write CSV");
+    let (ok, _stdout, stderr) = run_cli(&[
+        "csv",
+        manifest.to_str().unwrap(),
+        "--has-header",
+        "--skip-existing-with-inference",
+        "copy",
+        "--src-bucket",
+        TEST_BUCKET,
+        "--src-prefix",
+        &src_prefix,
+        "--dst-bucket",
+        TEST_BUCKET,
+        "--dst-prefix",
+        &dst_prefix,
+    ]);
+    assert!(ok, "CLI CSV copy with skip failed: stderr={stderr}");
+
+    let (_, copied) = client
+        .get_object(TEST_BUCKET, &format!("{dst_prefix}{key}"), None)
+        .await
+        .expect("get destination object");
+    assert_eq!(copied, destination_body);
+
+    let _ = client
+        .delete_object(TEST_BUCKET, &format!("{src_prefix}{key}"))
+        .await;
+    let _ = client
+        .delete_object(TEST_BUCKET, &format!("{dst_prefix}{key}"))
+        .await;
+    let _ = std::fs::remove_dir_all(&base);
+}

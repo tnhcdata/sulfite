@@ -1,6 +1,6 @@
 [package]
 name = "sulfite-tools"
-version = "0.0.12"
+version = "0.0.13"
 edition = "2024"
 authors = ["Terence Liu <terence@tnhcdata.io>"]
 description = "A high-level S3 client built on AWS SDK for Rust for bandwidth saturation (CLI tools)"
@@ -18,7 +18,7 @@ doc = false
 
 [dependencies]
 # Path used for local dev; when published, only version is used (publish sulfite first).
-sulfite = { version = "0.0.12", path = "../sulfite", features = ["indicatif"] }
+sulfite = { version = "0.0.13", path = "../sulfite", features = ["indicatif"] }
 
 anyhow = "1.0"
 colored = "3.1"
